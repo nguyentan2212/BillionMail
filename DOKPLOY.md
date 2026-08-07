@@ -125,16 +125,29 @@ All state lives under:
 
 The repository itself contains no production secrets or mail data.
 
-The initializer does not overwrite the persistent `.env` during ordinary
-redeployments because BillionMail can edit that file from its Settings UI.
-To intentionally regenerate it from Dokploy values, set:
+During normal redeployments, the initializer preserves the UI-owned settings in
+the persistent `.env` file:
+
+```text
+ADMIN_USERNAME
+ADMIN_PASSWORD
+SafePath
+BILLIONMAIL_HOSTNAME
+```
+
+Infrastructure connection settings beginning with `DB` or `REDIS` are instead
+synchronized from the Dokploy Environment on every deployment. You can therefore
+change external PostgreSQL or Redis credentials without recreating the whole
+file.
+
+To intentionally regenerate the complete `.env` from Dokploy values, set:
 
 ```env
 BILLIONMAIL_ENV_RECREATE=true
 ```
 
-for one deployment, then immediately return it to `false`. This overwrites UI
-changes to admin username, password, SafePath and hostname.
+for one deployment, then immediately return it to `false`. This also overwrites
+UI changes to admin username, password, SafePath and hostname.
 
 ## 6. Updating BillionMail
 
