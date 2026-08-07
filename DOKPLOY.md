@@ -1,113 +1,179 @@
-# BillionMail fork: one-deploy installation on Dokploy
+# BillionMail on Dokploy with external PostgreSQL and Redis
 
-This overlay replaces the earlier two-step `seed -> production` workflow with
-one Docker Compose deployment.
+This fork deploys BillionMail with one Docker Compose file while keeping all
+persistent mail/configuration data under `../files/billionmail`.
 
-## Why an initializer is still needed
+The Dokploy stack intentionally does **not** include:
 
-BillionMail's upstream Compose mounts `./conf`, `./ssl`, `./postgresql-data`,
-and other paths directly from the repository checkout. Dokploy performs a fresh
-clone during deployments, so long-running bind mounts must not depend on that
-checkout. The initializer embeds `conf/` and `ssl-self-signed/` in a small image,
-then copies them to `../files/billionmail`. All long-running services mount only
-persistent paths.
+- PostgreSQL
+- Redis
+- PgBouncer
+- a Redis TCP gateway
+- Docker Compose profiles for local databases
 
-## 1. Create a stable fork branch
+Core, Postfix, Dovecot and Roundcube connect directly to the configured external
+PostgreSQL server. Core and Rspamd connect directly to the configured external
+Redis server.
 
-The upstream default branch is `dev`. Start the Dokploy branch from a stable
-release tag instead:
+## 1. Dokploy service
 
-```bash
-git clone https://github.com/YOUR_ACCOUNT/BillionMail.git
-cd BillionMail
-git remote add upstream https://github.com/Billionmail/BillionMail.git
-git fetch upstream --tags
-git switch -c dokploy-v4.9 v4.9
-```
-
-Copy these overlay files into the fork root:
+Create a Docker Compose service with:
 
 ```text
-docker-compose.dokploy.yml
-dokploy.env.example
-DOKPLOY.md
-deploy/dokploy/Dockerfile.init
-deploy/dokploy/init.sh
-deploy/dokploy/pgbouncer/Dockerfile
-deploy/dokploy/pgbouncer/entrypoint.sh
-deploy/dokploy/redis-gateway/Dockerfile
-deploy/dokploy/redis-gateway/entrypoint.sh
+Repository:    nguyentan2212/BillionMail
+Branch:        dev
+Compose path:  docker-compose.dokploy.yml
+Mode:          Docker Compose
+Isolated deployments: OFF
 ```
 
-Commit and push:
+The deployment must build the custom Core, Postfix, Dovecot and Rspamd images.
+Dokploy's normal deployment supports this. A custom deployment command must be
+equivalent to:
 
 ```bash
-git add docker-compose.dokploy.yml dokploy.env.example DOKPLOY.md deploy/dokploy
-git commit -m "deploy: add single-deploy Dokploy setup"
-git push -u origin dokploy-v4.9
+docker compose \
+  -f docker-compose.dokploy.yml \
+  up -d \
+  --build \
+  --remove-orphans
 ```
 
-## 2. Create the Dokploy Compose service
+Use **Clear Build Cache and Deploy** after changing one of the custom
+Dockerfiles or entrypoint scripts.
 
-Use:
+## 2. External PostgreSQL
 
-```text
-Source:       GitHub fork
-Branch:       dokploy-v4.9
-Compose path: docker-compose.dokploy.yml
-Mode:         Docker Compose (not Docker Stack)
-Auto Deploy:  optional
-Isolated Deployments: OFF
+Create an empty PostgreSQL database and role before the first deployment. The
+role must be able to create and alter tables, indexes and sequences in the
+selected database/schema.
+
+Example Dokploy environment:
+
+```env
+DBHOST=postgres.internal.example.com
+DBPORT=5432
+DBNAME=billionmail
+DBUSER=billionmail
+DBPASS=<strong URL-safe password>
+DB_SSLMODE=disable
 ```
 
-The deployment command must include `--build`, because the initializer,
-PgBouncer gateway, and Redis gateway are built from the fork. Dokploy's normal
-Compose deployment generally handles builds; if you use a custom command, use
-the full command shown by Dokploy and add `--build --remove-orphans`.
+Use `DB_SSLMODE=require`, `verify-ca`, or `verify-full` when the external service
+supports the corresponding TLS mode. For a private Docker network or trusted
+private LAN, `disable` may be appropriate.
 
-Paste `dokploy.env.example` into Dokploy Environment and replace every secret.
-Generate values with:
+`DBHOST` must be a hostname or IP reachable from the BillionMail containers. Do
+not use `127.0.0.1` unless PostgreSQL actually runs inside the same container,
+which it does not in this deployment.
+
+When PostgreSQL is another Dokploy service on the same VPS, either:
+
+1. attach both services to a shared external Docker network and use the
+   PostgreSQL service/network alias as `DBHOST`, or
+2. use a private host address and a port exposed only to the private network.
+
+## 3. External Redis
+
+Example Dokploy environment:
+
+```env
+REDISHOST=redis.internal.example.com
+REDISPORT=6379
+REDISUSER=
+REDISPASS=<strong password>
+REDISDB=1
+RSPAMD_REDISDB=0
+REDIS_TLS=false
+REDIS_TLS_VERIFY=required
+REDIS_TLS_SERVER_NAME=
+```
+
+Core uses `REDISDB`, while Rspamd normally uses database `0`. The external Redis
+instance must therefore support the selected logical databases. If the service
+supports only database `0`, set both values to `0`.
+
+Core supports an optional Redis ACL username through `REDISUSER`. Leaving it
+empty uses password-only authentication/default user.
+
+### Redis TLS limitation
+
+The simplified Rspamd integration connects directly to Redis without a TLS
+proxy. Therefore the shared Redis endpoint currently requires:
+
+```env
+REDIS_TLS=false
+```
+
+Use a private Docker network, private VLAN/VPC, Tailscale, WireGuard, or another
+trusted private path. If the provider offers only TLS Redis, add a dedicated TLS
+tunnel for Rspamd or restore a proxy; the external-only Compose intentionally
+omits that extra layer.
+
+## 4. Complete minimum environment
+
+Start from `dokploy.env.example`. The important values are:
+
+```env
+BILLIONMAIL_CONFIG_VERSION=v4.9
+BILLIONMAIL_CORE_VERSION=4.9.3
+BILLIONMAIL_CONFIG_SYNC=missing
+BILLIONMAIL_ENV_RECREATE=false
+
+BILLIONMAIL_HOSTNAME=mail.example.com
+ADMIN_USERNAME=mia-mail-admin
+ADMIN_PASSWORD=<strong password>
+SafePath=<random path>
+
+DBHOST=<external PostgreSQL host>
+DBPORT=5432
+DBNAME=billionmail
+DBUSER=billionmail
+DBPASS=<external PostgreSQL password>
+DB_SSLMODE=disable
+
+REDISHOST=<external Redis host>
+REDISPORT=6379
+REDISUSER=
+REDISPASS=<external Redis password>
+REDISDB=1
+RSPAMD_REDISDB=0
+REDIS_TLS=false
+
+HTTP_PORT=8080
+HTTPS_PORT=8443
+TZ=Asia/Ho_Chi_Minh
+IPV4_NETWORK=10.89.0
+```
+
+Generate secrets with:
 
 ```bash
 openssl rand -hex 24
-openssl rand -hex 12
 openssl rand -hex 32
 ```
 
-## 3. Deploy once
+## 5. Domain
 
-During the same deployment:
-
-1. Dokploy clones the fork.
-2. Docker builds the initializer, PgBouncer gateway, and Redis gateway.
-   The Core image defaults to `4.9.3`, matching the current upstream dev Compose
-   and avoiding the `Scan(&int)` SMTP relay migration bug in `4.9.0`.
-3. `billionmail-init` initializes `../files/billionmail` and exits successfully.
-4. The PostgreSQL gateway connects to local or external PostgreSQL.
-5. The Redis gateway connects to local or external Redis while preserving the
-   internal endpoint `redis:6379` expected by Core and Rspamd.
-6. Rspamd, Dovecot, Postfix, Roundcube and Core start after database and Redis
-   health checks succeed.
-
-An exited `billionmail-init` container with exit code 0 is expected.
-
-## 4. Add the domain
-
-In the Compose Domains tab:
+In the Dokploy Compose Domains tab:
 
 ```text
-Domain:  mail.example.com
-Service: core-billionmail
-Port:    8080
-HTTPS:   enabled
-Path:    /
+Domain:          mail.example.com
+Service:         core-billionmail
+Container port:  8080
+Path:            /
+Strip path:      OFF
+HTTPS:           enabled
 ```
 
-The management URL is:
+The management entry URL is:
 
 ```text
 https://mail.example.com/<SafePath>
 ```
+
+BillionMail intentionally redirects that one-time entry URL back to `/` after
+saving the SafePath session.
 
 Set BillionMail's Reverse Proxy Domain to:
 
@@ -115,180 +181,104 @@ Set BillionMail's Reverse Proxy Domain to:
 https://mail.example.com
 ```
 
-## 5. Persistent state
+## 6. Persistent state
 
-All state lives under:
+Persistent state remains under:
 
 ```text
 ../files/billionmail
 ```
 
-The repository itself contains no production secrets or mail data.
+This includes configuration, certificates, logs, mailboxes, the Postfix queue,
+Roundcube files and Core state. PostgreSQL and Redis data are managed by the
+external services and are no longer stored by this Compose project.
 
-During normal redeployments, the initializer preserves the UI-owned settings in
-the persistent `.env` file:
-
-```text
-ADMIN_USERNAME
-ADMIN_PASSWORD
-SafePath
-BILLIONMAIL_HOSTNAME
-```
-
-Infrastructure connection settings beginning with `DB` or `REDIS` are instead
-synchronized from the Dokploy Environment on every deployment. You can therefore
-change external PostgreSQL or Redis credentials without recreating the whole
-file.
-
-To intentionally regenerate the complete `.env` from Dokploy values, set:
+The initializer preserves `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SafePath` and
+`BILLIONMAIL_HOSTNAME` after the first deployment. Infrastructure connection
+settings (`DB*` and `REDIS*`) are synchronized from Dokploy on every deployment.
+To intentionally rebuild the entire persistent `.env`, set:
 
 ```env
 BILLIONMAIL_ENV_RECREATE=true
 ```
 
-for one deployment, then immediately return it to `false`. This also overwrites
-UI changes to admin username, password, SafePath and hostname.
+for one deployment, then return it to `false`.
 
-## 6. Updating BillionMail
+## 7. Migrating an existing installation
 
-Do not run `bm update` inside the managed containers. For a new upstream release:
+Changing the Compose file does not copy data from the old local PostgreSQL. Use
+`pg_dump`/`pg_restore` before removing the old database when the installation
+already has domains, mailboxes, contacts, templates or campaigns.
+
+Redis is mostly runtime/session/statistics state. Starting with an empty external
+Redis is usually acceptable, but active sessions, rate-limit state and Rspamd
+learning/statistics may be lost.
+
+After the external services and new containers are confirmed healthy, remove
+obsolete containers left by older deployments:
 
 ```bash
-git fetch upstream --tags
-git switch -c dokploy-vNEXT vNEXT
-git cherry-pick <commit-containing-the-Dokploy-overlay>
+docker ps -aq \
+  --filter label=com.docker.compose.service=pgsql-billionmail \
+  --filter label=com.docker.compose.service=redis-billionmail \
+  --filter label=com.docker.compose.service=pgsql-gateway \
+  --filter label=com.docker.compose.service=redis-gateway
 ```
 
-Then review:
+Because Docker applies multiple filters as AND in many commands, remove each
+service separately when needed:
 
-```text
-- upstream docker-compose.yml image tags
-- additions/changes under conf/
-- database migration notes
-- Dockerfile/entrypoint changes
+```bash
+for service in \
+  pgsql-billionmail \
+  redis-billionmail \
+  pgsql-gateway \
+  redis-gateway \
+  database-ready; do
+  docker ps -aq \
+    --filter "label=com.docker.compose.service=$service" |
+  xargs -r docker rm -f
+done
 ```
 
-Update the image tags and `BILLIONMAIL_CONFIG_VERSION` in the Dokploy Compose,
-then deploy the new branch. The default sync mode `missing` only adds newly
-introduced files; it deliberately does not overwrite modified configuration.
-Use `overwrite` only after a complete backup and manual diff review.
-
-## 7. First-run warnings
-
-The initializer explicitly creates the runtime-only directories:
-
-```text
-../files/billionmail/conf/askai
-../files/billionmail/rspamd-data/dkim
-```
-
-This prevents repeated `conf/askai: no such file or directory` and initial DKIM
-repair warnings on a fresh database.
-
-The upstream Core image may still print `chown: unknown user/group root:crontab`
-and early fail2ban reload warnings. The process continues and fail2ban is
-subsequently started by Supervisor. Set `FAIL2BAN_INIT=n` if fail2ban is managed
-at the VPS/Traefik layer and you do not want the in-container startup warnings.
-
-## 8. Local or external PostgreSQL and Redis
-
-The same Compose profile controls both bundled data services:
-
-```env
-COMPOSE_PROFILES=local-db
-```
-
-With that profile enabled, both `pgsql-billionmail` and `redis-billionmail` are
-started. With it empty, both local services are disabled and the two gateways
-connect to external servers.
-
-### Bundled PostgreSQL and Redis
-
-Keep these Dokploy environment values:
-
-```env
-COMPOSE_PROFILES=local-db
-
-DBHOST=pgsql-billionmail
-DBPORT=5432
-DB_SSLMODE=disable
-
-REDISHOST=redis-billionmail
-REDISPORT=6379
-REDISPASS=<password used by the bundled Redis>
-REDISDB=1
-REDIS_TLS=false
-REDIS_TLS_VERIFY=required
-REDIS_TLS_SERVER_NAME=
-```
-
-Persistent local data remains in:
+Do not delete the old bind-mount directories until PostgreSQL migration and
+backups have been verified:
 
 ```text
 ../files/billionmail/postgresql-data
 ../files/billionmail/redis-data
+../files/billionmail/postgresql-socket
 ```
 
-All BillionMail PostgreSQL clients connect to `pgsql:5432` through PgBouncer.
-All BillionMail Redis clients connect to `redis:6379` through the Redis gateway.
-This preserves the hard-coded hostnames used by the upstream Core and Rspamd
-images.
+## 8. Expected services
 
-### External PostgreSQL and Redis
+After a successful deployment, the long-running services are:
 
-Disable the local profile and point both gateways at reachable external hosts:
-
-```env
-COMPOSE_PROFILES=
-
-DBHOST=postgres.example.internal
-DBPORT=5432
-DBNAME=billionmail
-DBUSER=billionmail
-DBPASS=<URL-safe password, preferably hex>
-DB_SSLMODE=require
-DB_POOL_MODE=session
-DB_MAX_CLIENT_CONN=200
-DB_DEFAULT_POOL_SIZE=20
-
-REDISHOST=redis.example.internal
-REDISPORT=6380
-REDISPASS=<external Redis password>
-REDISDB=1
-REDIS_TLS=true
-REDIS_TLS_VERIFY=required
-REDIS_TLS_SERVER_NAME=redis.example.internal
+```text
+rspamd-billionmail
+dovecot-billionmail
+postfix-billionmail
+webmail-billionmail
+core-billionmail
+traefik-certs-dumper
+mail-cert-reloader
 ```
 
-For services on another Dokploy project, attach the projects to a shared external
-Docker network or use a DNS/private IP address reachable from the BillionMail
-network. `127.0.0.1` inside a container is the container itself, not the VPS host.
+`billionmail-init` exits with status `0`; that is expected.
 
-The external PostgreSQL role must be able to connect, create tables, indexes,
-sequences, and alter the `public` schema used by BillionMail migrations. Create
-an empty database before the first deployment.
+There should be no running service named:
 
-The external Redis server must support password authentication using the default
-Redis user. BillionMail currently supplies only a password, not a separate ACL
-username. It also uses logical database `0` for Rspamd and `REDISDB` (default `1`)
-for Core. If the provider supports only database `0`, set:
-
-```env
-REDISDB=0
+```text
+pgsql-billionmail
+redis-billionmail
+pgsql-gateway
+redis-gateway
+database-ready
 ```
 
-Redis Cluster endpoints are not suitable because they normally reject `SELECT`
-and do not provide the logical database behavior expected by BillionMail. Use a
-standalone or primary endpoint instead.
+## 9. Update policy
 
-`REDIS_TLS=true` makes the internal gateway establish TLS to the external Redis
-server while BillionMail containers continue using plaintext on the private
-Docker network. Keep `REDIS_TLS_VERIFY=required` for a publicly trusted
-certificate. `REDIS_TLS_VERIFY=none` is available for a private/self-signed
-endpoint but disables certificate verification.
-
-Changing the profile does not migrate existing data. Move PostgreSQL with
-`pg_dump`/`pg_restore` before changing `DBHOST`. Redis mostly contains runtime
-cache, sessions, rate-limit data and Rspamd statistics, but switching to a fresh
-external Redis can still reset those values. Export/import Redis separately when
-that state must be retained.
+Do not run `bm update` inside containers managed by Dokploy. Review upstream
+changes, update the fork and redeploy with `--build --remove-orphans`. The custom
+Core image compiles the fork's Go source so direct external PostgreSQL and Redis
+support remains part of the deployed binary.
