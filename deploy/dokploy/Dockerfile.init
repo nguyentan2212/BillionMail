@@ -1,0 +1,17 @@
+FROM alpine:3.22
+
+ARG BILLIONMAIL_CONFIG_VERSION=v4.9
+LABEL org.opencontainers.image.title="BillionMail Dokploy initializer" \
+      org.opencontainers.image.version="${BILLIONMAIL_CONFIG_VERSION}"
+
+RUN apk add --no-cache rsync
+
+# These directories come from the exact BillionMail tag/commit used as the
+# base of the fork, so config and container images remain version-aligned.
+COPY conf/ /seed/conf/
+COPY ssl-self-signed/ /seed/ssl-self-signed/
+COPY deploy/dokploy/init.sh /usr/local/bin/billionmail-init
+
+RUN chmod 0755 /usr/local/bin/billionmail-init
+
+ENTRYPOINT ["/usr/local/bin/billionmail-init"]
