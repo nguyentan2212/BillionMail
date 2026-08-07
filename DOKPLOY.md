@@ -33,6 +33,8 @@ dokploy.env.example
 DOKPLOY.md
 deploy/dokploy/Dockerfile.init
 deploy/dokploy/init.sh
+deploy/dokploy/pgbouncer/Dockerfile
+deploy/dokploy/pgbouncer/entrypoint.sh
 ```
 
 Commit and push:
@@ -75,10 +77,13 @@ openssl rand -hex 32
 During the same deployment:
 
 1. Dokploy clones the fork.
-2. Docker builds `local/billionmail-dokploy-init:v4.9` with the matching upstream
-   configuration embedded in the image.
+2. Docker builds the initializer and the local PgBouncer database gateway.
+   The Core image defaults to `4.9.3`, matching the current upstream dev Compose
+   and avoiding the `Scan(&int)` SMTP relay migration bug in `4.9.0`.
 3. `billionmail-init` initializes `../files/billionmail` and exits successfully.
-4. PostgreSQL, Redis, Rspamd, Dovecot, Postfix, Roundcube and Core start.
+4. The database gateway connects to either local or external PostgreSQL.
+5. Redis, Rspamd, Dovecot, Postfix, Roundcube and Core start after a real
+   `SELECT 1` health check succeeds.
 
 An exited `billionmail-init` container with exit code 0 is expected.
 
@@ -150,3 +155,75 @@ Update the image tags and `BILLIONMAIL_CONFIG_VERSION` in the Dokploy Compose,
 then deploy the new branch. The default sync mode `missing` only adds newly
 introduced files; it deliberately does not overwrite modified configuration.
 Use `overwrite` only after a complete backup and manual diff review.
+
+## 7. First-run warnings
+
+The initializer explicitly creates the runtime-only directories:
+
+```text
+../files/billionmail/conf/askai
+../files/billionmail/rspamd-data/dkim
+```
+
+This prevents repeated `conf/askai: no such file or directory` and initial DKIM
+repair warnings on a fresh database.
+
+The upstream Core image may still print `chown: unknown user/group root:crontab`
+and early fail2ban reload warnings. The process continues and fail2ban is
+subsequently started by Supervisor. Set `FAIL2BAN_INIT=n` if fail2ban is managed
+at the VPS/Traefik layer and you do not want the in-container startup warnings.
+
+## 8. Local or external PostgreSQL
+
+All BillionMail services connect to the stable internal endpoint `pgsql:5432`.
+A small PgBouncer gateway maps that endpoint and the Unix socket required by
+BillionMail Core to either the bundled PostgreSQL container or an external
+PostgreSQL server.
+
+### Bundled PostgreSQL
+
+Keep these Dokploy environment values:
+
+```env
+COMPOSE_PROFILES=local-db
+DBHOST=pgsql-billionmail
+DBPORT=5432
+DB_SSLMODE=disable
+```
+
+The `pgsql-billionmail` service has the `local-db` profile and stores data in:
+
+```text
+../files/billionmail/postgresql-data
+```
+
+### External PostgreSQL
+
+Disable the local profile and point the gateway to the external server:
+
+```env
+COMPOSE_PROFILES=
+DBHOST=postgres.example.internal
+DBPORT=5432
+DBNAME=billionmail
+DBUSER=billionmail
+DBPASS=<URL-safe password, preferably hex>
+DB_SSLMODE=require
+```
+
+For a PostgreSQL server on another Docker Compose project, attach both projects
+to a shared external network or use a DNS/IP address reachable from the
+BillionMail network. `127.0.0.1` inside a container is the container itself, not
+the VPS host.
+
+The external role must be able to connect, create tables, indexes, sequences,
+and alter the `public` schema used by BillionMail migrations. Create an empty
+database before the first deployment.
+
+`DB_SSLMODE` accepts `disable`, `prefer`, or `require`. Use `disable` for the
+bundled database and normally `require` for a managed external PostgreSQL
+service.
+
+Switching database mode does not copy existing data. Migrate the database with
+`pg_dump`/`pg_restore` before changing `DBHOST` when the instance already has
+mailboxes, contacts, templates, or campaigns.
