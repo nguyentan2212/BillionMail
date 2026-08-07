@@ -36,9 +36,7 @@ mkdir -p \
   "$state/core-data" \
   "$state/cert-dump"
 
-chmod 0755 \
-  "$state/conf/askai" \
-  "$state/rspamd-data/dkim"
+chmod 0755 "$state/conf/askai" "$state/rspamd-data/dkim"
 
 marker="$state/.dokploy-init-version"
 
@@ -85,6 +83,12 @@ BILLIONMAIL_HOSTNAME=${BILLIONMAIL_HOSTNAME}
 DBNAME=${DBNAME:-billionmail}
 DBUSER=${DBUSER:-billionmail}
 DBPASS=${DBPASS}
+DBHOST=${DBHOST:-pgsql-billionmail}
+DBPORT=${DBPORT:-5432}
+DB_SSLMODE=${DB_SSLMODE:-disable}
+DB_POOL_MODE=${DB_POOL_MODE:-session}
+DB_MAX_CLIENT_CONN=${DB_MAX_CLIENT_CONN:-200}
+DB_DEFAULT_POOL_SIZE=${DB_DEFAULT_POOL_SIZE:-20}
 REDISPASS=${REDISPASS}
 SMTP_PORT=${SMTP_PORT:-25}
 SMTPS_PORT=${SMTPS_PORT:-465}
@@ -112,6 +116,21 @@ ENVEOF
 else
   echo "Persistent BillionMail .env preserved"
 fi
+
+ensure_env_key() {
+  key="$1"
+  value="$2"
+  if ! grep -q "^${key}=" "$state/.env"; then
+    printf '%s=%s\n' "$key" "$value" >> "$state/.env"
+  fi
+}
+
+ensure_env_key DBHOST "${DBHOST:-pgsql-billionmail}"
+ensure_env_key DBPORT "${DBPORT:-5432}"
+ensure_env_key DB_SSLMODE "${DB_SSLMODE:-disable}"
+ensure_env_key DB_POOL_MODE "${DB_POOL_MODE:-session}"
+ensure_env_key DB_MAX_CLIENT_CONN "${DB_MAX_CLIENT_CONN:-200}"
+ensure_env_key DB_DEFAULT_POOL_SIZE "${DB_DEFAULT_POOL_SIZE:-20}"
 
 printf '%s\n' "$version" > "$marker"
 echo "BillionMail initialization completed"
