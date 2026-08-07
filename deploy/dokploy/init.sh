@@ -90,6 +90,12 @@ DB_POOL_MODE=${DB_POOL_MODE:-session}
 DB_MAX_CLIENT_CONN=${DB_MAX_CLIENT_CONN:-200}
 DB_DEFAULT_POOL_SIZE=${DB_DEFAULT_POOL_SIZE:-20}
 REDISPASS=${REDISPASS}
+REDISHOST=${REDISHOST:-redis-billionmail}
+REDISPORT=${REDISPORT:-6379}
+REDIS_TLS=${REDIS_TLS:-false}
+REDIS_TLS_VERIFY=${REDIS_TLS_VERIFY:-required}
+REDIS_TLS_SERVER_NAME=${REDIS_TLS_SERVER_NAME:-}
+REDISDB=${REDISDB:-1}
 SMTP_PORT=${SMTP_PORT:-25}
 SMTPS_PORT=${SMTPS_PORT:-465}
 SUBMISSION_PORT=${SUBMISSION_PORT:-587}
@@ -131,6 +137,12 @@ ensure_env_key DB_SSLMODE "${DB_SSLMODE:-disable}"
 ensure_env_key DB_POOL_MODE "${DB_POOL_MODE:-session}"
 ensure_env_key DB_MAX_CLIENT_CONN "${DB_MAX_CLIENT_CONN:-200}"
 ensure_env_key DB_DEFAULT_POOL_SIZE "${DB_DEFAULT_POOL_SIZE:-20}"
+ensure_env_key REDISHOST "${REDISHOST:-redis-billionmail}"
+ensure_env_key REDISPORT "${REDISPORT:-6379}"
+ensure_env_key REDIS_TLS "${REDIS_TLS:-false}"
+ensure_env_key REDIS_TLS_VERIFY "${REDIS_TLS_VERIFY:-required}"
+ensure_env_key REDIS_TLS_SERVER_NAME "${REDIS_TLS_SERVER_NAME:-}"
+ensure_env_key REDISDB "${REDISDB:-1}"
 
 printf '%s\n' "$version" > "$marker"
 echo "BillionMail initialization completed"
