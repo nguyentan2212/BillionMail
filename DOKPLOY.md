@@ -27,9 +27,9 @@ Mode:          Docker Compose
 Isolated deployments: OFF
 ```
 
-The deployment must build the custom Core, Postfix, Dovecot and Rspamd images.
-Dokploy's normal deployment supports this. A custom deployment command must be
-equivalent to:
+The deployment builds the Core, Postfix, Dovecot and Rspamd adapters plus the
+small initialization and certificate-sync images. Dokploy's normal deployment
+supports this. A custom deployment command must be equivalent to:
 
 ```bash
 docker compose \
@@ -39,8 +39,8 @@ docker compose \
   --remove-orphans
 ```
 
-Use **Clear Build Cache and Deploy** after changing one of the custom
-Dockerfiles or entrypoint scripts.
+Use **Clear Build Cache and Deploy** after changing a Dokploy Dockerfile,
+entrypoint, or certificate hook.
 
 ## 2. External PostgreSQL
 
@@ -181,6 +181,11 @@ Set BillionMail's Reverse Proxy Domain to:
 https://mail.example.com
 ```
 
+The Compose file publishes SMTP (`25`, `465`, `587`), IMAP (`143`, `993`) and
+POP (`110`, `995`) using the matching environment variables. Allow the selected
+ports through the VPS and provider firewalls; Dokploy's HTTP domain only routes
+the Core web service.
+
 ## 6. Persistent state
 
 Persistent state remains under:
@@ -261,10 +266,12 @@ postfix-billionmail
 webmail-billionmail
 core-billionmail
 traefik-certs-dumper
-mail-cert-reloader
 ```
 
 `billionmail-init` exits with status `0`; that is expected.
+`traefik-certs-dumper` watches Dokploy's Traefik certificate store. Postfix and
+Dovecot reload themselves when the shared mail certificate changes, so no
+Docker-socket certificate-reloader container is required.
 
 There should be no running service named:
 
