@@ -119,7 +119,6 @@ dns_max_ttl = 15
 log_connections = 1
 log_disconnections = 1
 log_pooler_errors = 1
-logfile = /dev/stdout
 pidfile = /tmp/pgbouncer.pid
 EOF_CONFIG
 } > /etc/pgbouncer/pgbouncer.ini
