@@ -16,11 +16,13 @@ env_recreate="${BILLIONMAIL_ENV_RECREATE:-false}"
 
 mkdir -p \
   "$state/conf" \
+  "$state/conf/askai" \
   "$state/ssl-self-signed" \
   "$state/postgresql-data" \
   "$state/postgresql-socket" \
   "$state/redis-data" \
   "$state/rspamd-data" \
+  "$state/rspamd-data/dkim" \
   "$state/logs/rspamd" \
   "$state/logs/dovecot" \
   "$state/logs/postfix" \
@@ -33,6 +35,10 @@ mkdir -p \
   "$state/php-sock" \
   "$state/core-data" \
   "$state/cert-dump"
+
+chmod 0755 \
+  "$state/conf/askai" \
+  "$state/rspamd-data/dkim"
 
 marker="$state/.dokploy-init-version"
 
