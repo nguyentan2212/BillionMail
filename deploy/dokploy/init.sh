@@ -123,26 +123,36 @@ else
   echo "Persistent BillionMail .env preserved"
 fi
 
-ensure_env_key() {
+sync_env_key() {
   key="$1"
   value="$2"
-  if ! grep -q "^${key}=" "$state/.env"; then
-    printf '%s=%s\n' "$key" "$value" >> "$state/.env"
-  fi
+  tmp="$state/.env.sync.$$"
+
+  grep -v "^${key}=" "$state/.env" > "$tmp" || true
+  printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$state/.env"
 }
 
-ensure_env_key DBHOST "${DBHOST:-pgsql-billionmail}"
-ensure_env_key DBPORT "${DBPORT:-5432}"
-ensure_env_key DB_SSLMODE "${DB_SSLMODE:-disable}"
-ensure_env_key DB_POOL_MODE "${DB_POOL_MODE:-session}"
-ensure_env_key DB_MAX_CLIENT_CONN "${DB_MAX_CLIENT_CONN:-200}"
-ensure_env_key DB_DEFAULT_POOL_SIZE "${DB_DEFAULT_POOL_SIZE:-20}"
-ensure_env_key REDISHOST "${REDISHOST:-redis-billionmail}"
-ensure_env_key REDISPORT "${REDISPORT:-6379}"
-ensure_env_key REDIS_TLS "${REDIS_TLS:-false}"
-ensure_env_key REDIS_TLS_VERIFY "${REDIS_TLS_VERIFY:-required}"
-ensure_env_key REDIS_TLS_SERVER_NAME "${REDIS_TLS_SERVER_NAME:-}"
-ensure_env_key REDISDB "${REDISDB:-1}"
+# Infrastructure connection settings are owned by Dokploy and must track its
+# environment on every deployment. Admin credentials, SafePath and hostname
+# remain preserved unless BILLIONMAIL_ENV_RECREATE=true is used.
+sync_env_key DBNAME "${DBNAME:-billionmail}"
+sync_env_key DBUSER "${DBUSER:-billionmail}"
+sync_env_key DBPASS "${DBPASS}"
+sync_env_key DBHOST "${DBHOST:-pgsql-billionmail}"
+sync_env_key DBPORT "${DBPORT:-5432}"
+sync_env_key DB_SSLMODE "${DB_SSLMODE:-disable}"
+sync_env_key DB_POOL_MODE "${DB_POOL_MODE:-session}"
+sync_env_key DB_MAX_CLIENT_CONN "${DB_MAX_CLIENT_CONN:-200}"
+sync_env_key DB_DEFAULT_POOL_SIZE "${DB_DEFAULT_POOL_SIZE:-20}"
+sync_env_key REDISPASS "${REDISPASS}"
+sync_env_key REDISHOST "${REDISHOST:-redis-billionmail}"
+sync_env_key REDISPORT "${REDISPORT:-6379}"
+sync_env_key REDIS_TLS "${REDIS_TLS:-false}"
+sync_env_key REDIS_TLS_VERIFY "${REDIS_TLS_VERIFY:-required}"
+sync_env_key REDIS_TLS_SERVER_NAME "${REDIS_TLS_SERVER_NAME:-}"
+sync_env_key REDISDB "${REDISDB:-1}"
 
 printf '%s\n' "$version" > "$marker"
 echo "BillionMail initialization completed"
