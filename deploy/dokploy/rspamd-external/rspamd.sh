@@ -19,7 +19,7 @@ if ! grep -q "rotate_log.sh" /var/spool/cron/crontabs/root; then
     echo "10 00 * * * bash /rotate_log.sh >> /var/log/rspamd/rotate_log.log 2>&1" >> /var/spool/cron/crontabs/root
     chmod 600 /var/spool/cron/crontabs/root
     chown root:crontab /var/spool/cron/crontabs/root 2>/dev/null || chown root:root /var/spool/cron/crontabs/root
-    /usr/bin/supervisorctl restart cron
+    /usr/bin/supervisorctl restart cron || true
 fi
 
 chmod 755 /var/lib/rspamd
