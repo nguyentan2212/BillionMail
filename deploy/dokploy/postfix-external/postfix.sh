@@ -131,5 +131,6 @@ if [[ $? != 0 ]]; then
   echo "Postfix configuration error, Startup failed."
   exit 1
 else
+  /usr/local/bin/mail-cert-watcher postfix reload &
   postfix start-fg
 fi

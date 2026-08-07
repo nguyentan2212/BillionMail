@@ -41,4 +41,5 @@ sievec /usr/lib/dovecot/sieve/spam-to-folder.sieve
 sievec /usr/lib/dovecot/sieve/report-spam.sieve
 sievec /usr/lib/dovecot/sieve/report-ham.sieve
 
+/usr/local/bin/mail-cert-watcher doveadm reload &
 exec "$@"

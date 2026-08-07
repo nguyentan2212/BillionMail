@@ -32,8 +32,7 @@ mkdir -p \
   "$state/postfix-data" \
   "$state/webmail-data" \
   "$state/php-sock" \
-  "$state/core-data" \
-  "$state/cert-dump"
+  "$state/core-data"
 
 chmod 0755 "$state/conf/askai" "$state/rspamd-data/dkim"
 

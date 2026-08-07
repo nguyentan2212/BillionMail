@@ -1,9 +1,5 @@
 FROM alpine:3.22
 
-ARG BILLIONMAIL_CONFIG_VERSION=v4.9
-LABEL org.opencontainers.image.title="BillionMail Dokploy initializer" \
-      org.opencontainers.image.version="${BILLIONMAIL_CONFIG_VERSION}"
-
 RUN apk add --no-cache rsync
 
 # These directories come from the exact BillionMail tag/commit used as the
