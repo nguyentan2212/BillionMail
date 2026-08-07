@@ -35,6 +35,8 @@ deploy/dokploy/Dockerfile.init
 deploy/dokploy/init.sh
 deploy/dokploy/pgbouncer/Dockerfile
 deploy/dokploy/pgbouncer/entrypoint.sh
+deploy/dokploy/redis-gateway/Dockerfile
+deploy/dokploy/redis-gateway/entrypoint.sh
 ```
 
 Commit and push:
@@ -58,10 +60,10 @@ Auto Deploy:  optional
 Isolated Deployments: OFF
 ```
 
-The deployment command must include `--build`, because the initializer is built
-from the fork. Dokploy's normal Compose deployment generally handles builds; if
-you use a custom command, use the full command shown by Dokploy and add
-`--build --remove-orphans`.
+The deployment command must include `--build`, because the initializer,
+PgBouncer gateway, and Redis gateway are built from the fork. Dokploy's normal
+Compose deployment generally handles builds; if you use a custom command, use
+the full command shown by Dokploy and add `--build --remove-orphans`.
 
 Paste `dokploy.env.example` into Dokploy Environment and replace every secret.
 Generate values with:
@@ -77,13 +79,15 @@ openssl rand -hex 32
 During the same deployment:
 
 1. Dokploy clones the fork.
-2. Docker builds the initializer and the local PgBouncer database gateway.
+2. Docker builds the initializer, PgBouncer gateway, and Redis gateway.
    The Core image defaults to `4.9.3`, matching the current upstream dev Compose
    and avoiding the `Scan(&int)` SMTP relay migration bug in `4.9.0`.
 3. `billionmail-init` initializes `../files/billionmail` and exits successfully.
-4. The database gateway connects to either local or external PostgreSQL.
-5. Redis, Rspamd, Dovecot, Postfix, Roundcube and Core start after a real
-   `SELECT 1` health check succeeds.
+4. The PostgreSQL gateway connects to local or external PostgreSQL.
+5. The Redis gateway connects to local or external Redis while preserving the
+   internal endpoint `redis:6379` expected by Core and Rspamd.
+6. Rspamd, Dovecot, Postfix, Roundcube and Core start after database and Redis
+   health checks succeed.
 
 An exited `billionmail-init` container with exit code 0 is expected.
 
@@ -173,57 +177,105 @@ and early fail2ban reload warnings. The process continues and fail2ban is
 subsequently started by Supervisor. Set `FAIL2BAN_INIT=n` if fail2ban is managed
 at the VPS/Traefik layer and you do not want the in-container startup warnings.
 
-## 8. Local or external PostgreSQL
+## 8. Local or external PostgreSQL and Redis
 
-All BillionMail services connect to the stable internal endpoint `pgsql:5432`.
-A small PgBouncer gateway maps that endpoint and the Unix socket required by
-BillionMail Core to either the bundled PostgreSQL container or an external
-PostgreSQL server.
+The same Compose profile controls both bundled data services:
 
-### Bundled PostgreSQL
+```env
+COMPOSE_PROFILES=local-db
+```
+
+With that profile enabled, both `pgsql-billionmail` and `redis-billionmail` are
+started. With it empty, both local services are disabled and the two gateways
+connect to external servers.
+
+### Bundled PostgreSQL and Redis
 
 Keep these Dokploy environment values:
 
 ```env
 COMPOSE_PROFILES=local-db
+
 DBHOST=pgsql-billionmail
 DBPORT=5432
 DB_SSLMODE=disable
+
+REDISHOST=redis-billionmail
+REDISPORT=6379
+REDISPASS=<password used by the bundled Redis>
+REDISDB=1
+REDIS_TLS=false
+REDIS_TLS_VERIFY=required
+REDIS_TLS_SERVER_NAME=
 ```
 
-The `pgsql-billionmail` service has the `local-db` profile and stores data in:
+Persistent local data remains in:
 
 ```text
 ../files/billionmail/postgresql-data
+../files/billionmail/redis-data
 ```
 
-### External PostgreSQL
+All BillionMail PostgreSQL clients connect to `pgsql:5432` through PgBouncer.
+All BillionMail Redis clients connect to `redis:6379` through the Redis gateway.
+This preserves the hard-coded hostnames used by the upstream Core and Rspamd
+images.
 
-Disable the local profile and point the gateway to the external server:
+### External PostgreSQL and Redis
+
+Disable the local profile and point both gateways at reachable external hosts:
 
 ```env
 COMPOSE_PROFILES=
+
 DBHOST=postgres.example.internal
 DBPORT=5432
 DBNAME=billionmail
 DBUSER=billionmail
 DBPASS=<URL-safe password, preferably hex>
 DB_SSLMODE=require
+DB_POOL_MODE=session
+DB_MAX_CLIENT_CONN=200
+DB_DEFAULT_POOL_SIZE=20
+
+REDISHOST=redis.example.internal
+REDISPORT=6380
+REDISPASS=<external Redis password>
+REDISDB=1
+REDIS_TLS=true
+REDIS_TLS_VERIFY=required
+REDIS_TLS_SERVER_NAME=redis.example.internal
 ```
 
-For a PostgreSQL server on another Docker Compose project, attach both projects
-to a shared external network or use a DNS/IP address reachable from the
-BillionMail network. `127.0.0.1` inside a container is the container itself, not
-the VPS host.
+For services on another Dokploy project, attach the projects to a shared external
+Docker network or use a DNS/private IP address reachable from the BillionMail
+network. `127.0.0.1` inside a container is the container itself, not the VPS host.
 
-The external role must be able to connect, create tables, indexes, sequences,
-and alter the `public` schema used by BillionMail migrations. Create an empty
-database before the first deployment.
+The external PostgreSQL role must be able to connect, create tables, indexes,
+sequences, and alter the `public` schema used by BillionMail migrations. Create
+an empty database before the first deployment.
 
-`DB_SSLMODE` accepts `disable`, `prefer`, or `require`. Use `disable` for the
-bundled database and normally `require` for a managed external PostgreSQL
-service.
+The external Redis server must support password authentication using the default
+Redis user. BillionMail currently supplies only a password, not a separate ACL
+username. It also uses logical database `0` for Rspamd and `REDISDB` (default `1`)
+for Core. If the provider supports only database `0`, set:
 
-Switching database mode does not copy existing data. Migrate the database with
-`pg_dump`/`pg_restore` before changing `DBHOST` when the instance already has
-mailboxes, contacts, templates, or campaigns.
+```env
+REDISDB=0
+```
+
+Redis Cluster endpoints are not suitable because they normally reject `SELECT`
+and do not provide the logical database behavior expected by BillionMail. Use a
+standalone or primary endpoint instead.
+
+`REDIS_TLS=true` makes the internal gateway establish TLS to the external Redis
+server while BillionMail containers continue using plaintext on the private
+Docker network. Keep `REDIS_TLS_VERIFY=required` for a publicly trusted
+certificate. `REDIS_TLS_VERIFY=none` is available for a private/self-signed
+endpoint but disables certificate verification.
+
+Changing the profile does not migrate existing data. Move PostgreSQL with
+`pg_dump`/`pg_restore` before changing `DBHOST`. Redis mostly contains runtime
+cache, sessions, rate-limit data and Rspamd statistics, but switching to a fresh
+external Redis can still reset those values. Export/import Redis separately when
+that state must be retained.
