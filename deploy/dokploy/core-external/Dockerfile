@@ -11,7 +11,7 @@ RUN go mod download
 
 COPY core/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags='-s -w' -o /out/billionmail .
+    go build -trimpath -ldflags='-s -w' -o /out/billionmail main.go
 
 FROM billionmail/core:${BILLIONMAIL_CORE_VERSION}
 
