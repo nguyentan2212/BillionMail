@@ -285,39 +285,42 @@ services:
     restart: unless-stopped
     environment:
       BILLIONMAIL_HOSTNAME: ${BILLIONMAIL_HOSTNAME:?set BILLIONMAIL_HOSTNAME}
-    entrypoint: ["/bin/sh", "-ec"]
-    command: |
-      while true; do
-        if [ -s /traefik/acme.json ]; then
-          traefik-certs-dumper file \
-            --version v3 \
-            --source /traefik/acme.json \
-            --dest /dump \
-            --domain-subdir=true \
-            --crt-name=cert \
-            --key-name=key \
-            --crt-ext=.pem \
-            --key-ext=.pem || true
+    entrypoint:
+      - /bin/sh
+    command:
+      - -ec
+      - |
+          while true; do
+            if [ -s /traefik/acme.json ]; then
+              traefik-certs-dumper file \
+                --version v3 \
+                --source /traefik/acme.json \
+                --dest /dump \
+                --domain-subdir=true \
+                --crt-name=cert \
+                --key-name=key \
+                --crt-ext=.pem \
+                --key-ext=.pem || true
 
-          src_cert="/dump/$${BILLIONMAIL_HOSTNAME}/cert.pem"
-          src_key="/dump/$${BILLIONMAIL_HOSTNAME}/key.pem"
+              src_cert="/dump/$${BILLIONMAIL_HOSTNAME}/cert.pem"
+              src_key="/dump/$${BILLIONMAIL_HOSTNAME}/key.pem"
 
-          if [ -s "$${src_cert}" ] && [ -s "$${src_key}" ]; then
-            new_hash="$$(cat "$${src_cert}" "$${src_key}" | sha256sum | cut -d' ' -f1)"
-            old_hash="$$(cat /mailssl/cert.pem /mailssl/key.pem 2>/dev/null | sha256sum | cut -d' ' -f1 || true)"
+              if [ -s "$${src_cert}" ] && [ -s "$${src_key}" ]; then
+                new_hash="$$(cat "$${src_cert}" "$${src_key}" | sha256sum | cut -d' ' -f1)"
+                old_hash="$$(cat /mailssl/cert.pem /mailssl/key.pem 2>/dev/null | sha256sum | cut -d' ' -f1 || true)"
 
-            if [ "$${new_hash}" != "$${old_hash}" ]; then
-              cp -f "$${src_cert}" /mailssl/cert.pem
-              cp -f "$${src_key}" /mailssl/key.pem
-              chmod 644 /mailssl/cert.pem
-              chmod 600 /mailssl/key.pem
-              date +%s > /mailssl/.reload
+                if [ "$${new_hash}" != "$${old_hash}" ]; then
+                  cp -f "$${src_cert}" /mailssl/cert.pem
+                  cp -f "$${src_key}" /mailssl/key.pem
+                  chmod 644 /mailssl/cert.pem
+                  chmod 600 /mailssl/key.pem
+                  date +%s > /mailssl/.reload
+                fi
+              fi
             fi
-          fi
-        fi
 
-        sleep 300
-      done
+            sleep 300
+          done
     volumes:
       - /etc/dokploy/traefik/dynamic/acme.json:/traefik/acme.json:ro
       - ../files/billionmail/cert-dump:/dump
@@ -331,32 +334,35 @@ services:
         condition: service_started
       dovecot-billionmail:
         condition: service_started
-    entrypoint: ["/bin/sh", "-ec"]
-    command: |
-      project="$$(docker inspect \
-        -f '{{ index .Config.Labels "com.docker.compose.project" }}' \
-        "$$(hostname)")"
+    entrypoint:
+      - /bin/sh
+    command:
+      - -ec
+      - |
+          project="$$(docker inspect \
+            -f '{{ index .Config.Labels "com.docker.compose.project" }}' \
+            "$$(hostname)")"
 
-      seen=""
-      while true; do
-        stamp="$$(cat /mailssl/.reload 2>/dev/null || true)"
+          seen=""
+          while true; do
+            stamp="$$(cat /mailssl/.reload 2>/dev/null || true)"
 
-        if [ -n "$${stamp}" ] && [ "$${stamp}" != "$${seen}" ]; then
-          seen="$${stamp}"
+            if [ -n "$${stamp}" ] && [ "$${stamp}" != "$${seen}" ]; then
+              seen="$${stamp}"
 
-          for service in postfix-billionmail dovecot-billionmail; do
-            ids="$$(docker ps -q \
-              --filter label=com.docker.compose.project=$${project} \
-              --filter label=com.docker.compose.service=$${service})"
+              for service in postfix-billionmail dovecot-billionmail; do
+                ids="$$(docker ps -q \
+                  --filter label=com.docker.compose.project=$${project} \
+                  --filter label=com.docker.compose.service=$${service})"
 
-            if [ -n "$${ids}" ]; then
-              docker restart $${ids} >/dev/null
+                if [ -n "$${ids}" ]; then
+                  docker restart $${ids} >/dev/null
+                fi
+              done
             fi
-          done
-        fi
 
-        sleep 30
-      done
+            sleep 30
+          done
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../files/billionmail/ssl:/mailssl:ro
