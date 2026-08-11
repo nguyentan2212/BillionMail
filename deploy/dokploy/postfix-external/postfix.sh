@@ -114,15 +114,17 @@ if [ ! -f "/etc/postfix/conf/vmail_ssl.map" ]; then
 fi
 postmap -F hash:/etc/postfix/conf/vmail_ssl.map
 
-chgrp -R postdrop /var/spool/postfix/public
-chgrp -R postdrop /var/spool/postfix/maildrop
+# /var/spool/postfix is a persistent bind mount. On the first deployment,
+# it may exist but contain none of the directory skeleton from the image.
+mkdir -p /var/spool/postfix/dev
+
+# Create missing queue/chroot directories, then restore the permissions
+# expected by the installed Postfix package.
+postfix check
+postfix set-permissions
 
 if [ -e "/var/spool/postfix/pid/master.pid" ]; then
   rm -f /var/spool/postfix/pid/master.pid
-fi
-
-if [ -d "/var/spool/postfix/" ]; then
-  [ ! -d "/var/spool/postfix/dev/" ] && mkdir /var/spool/postfix/dev
 fi
 
 postconf -c /etc/postfix/ > /dev/null
