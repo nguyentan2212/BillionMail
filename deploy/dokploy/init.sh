@@ -30,11 +30,12 @@ mkdir -p \
   "$state/ssl" \
   "$state/vmail-data" \
   "$state/postfix-data" \
+  "$state/postfix-data/dev" \
   "$state/webmail-data" \
   "$state/php-sock" \
   "$state/core-data"
 
-chmod 0755 "$state/conf/askai" "$state/rspamd-data/dkim"
+chmod 0755 "$state/conf/askai" "$state/rspamd-data/dkim" "$state/postfix-data/dev"
 
 marker="$state/.dokploy-init-version"
 
