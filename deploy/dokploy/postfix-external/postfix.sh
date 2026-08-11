@@ -121,7 +121,6 @@ mkdir -p /var/spool/postfix/dev
 # Create missing queue/chroot directories, then restore the permissions
 # expected by the installed Postfix package.
 postfix check
-postfix set-permissions
 
 if [ -e "/var/spool/postfix/pid/master.pid" ]; then
   rm -f /var/spool/postfix/pid/master.pid
